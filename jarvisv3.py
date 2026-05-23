@@ -568,7 +568,7 @@ def main():
 
     # ── Opening greeting ──────────────────────────────────
     speak(
-        "Namaste! Mein AcroBot 2.2 hu, Acropolis Institute ka AI Assistant. "
+        "Hello! Mein AcroBot 2.2 hu, Acropolis Institute ka AI Assistant. "
         "Aap admission, courses, departments, fees aur college se judi "
         "koi bhi jaankari poochh sakte hain. Mein aapki kaise madad kar sakta hu?",
         lang="hi",
