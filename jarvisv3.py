@@ -25,6 +25,7 @@
 """
 
 # ── Standard library ──────────────────────────────────────
+
 import os, re, time, queue, asyncio, tempfile, textwrap
 from enum import Enum
 from typing import Optional, Tuple, List
@@ -43,6 +44,13 @@ import pygame
 from dotenv import load_dotenv
 
 load_dotenv()
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY not found in .env file")
+
+print("Loaded API Key successfully.")
 
 # ══════════════════════════════════════════════════════════
 #  CONFIG — tweak these without touching any logic below
@@ -338,35 +346,66 @@ def needs_web(query: str, score: float) -> bool:
 #  GROQ CLIENT  +  CONVERSATION HISTORY
 # ══════════════════════════════════════════════════════════
 
-client = Groq(api_key=GROQ_API_KEY)
+try:
+
+    client = Groq(api_key=GROQ_API_KEY)
+
+    print("✅ Groq client initialized.\n")
+
+except Exception as e:
+
+    print(f"\n❌ Failed to initialize Groq client:\n{e}\n")
+
+    raise
 
 # Keep per-language histories so the model stays in the right language
 history: dict = {"en": [], "hi": []}
 
 def get_ai_reply(user_text: str, lang: str, context: str) -> str:
-    """
-    Call Groq LLaMA with the injected RAG context.
-    The system prompt already contains the retrieved chunks;
-    the model is instructed to answer ONLY from that context.
-    """
-    system        = build_system(lang, context)
-    lang_history  = history[lang]
 
-    lang_history.append({"role": "user", "content": user_text})
+    try:
 
-    response = client.chat.completions.create(
-        model    = CHAT_MODEL,
-        messages = [
-            {"role": "system", "content": system},
-            *lang_history,
-        ],
-        max_tokens  = MAX_TOKENS,
-        temperature = 0.4,   # lower temp → more factual, less creative
-    )
+        system = build_system(lang, context)
 
-    reply = response.choices[0].message.content.strip()
-    lang_history.append({"role": "assistant", "content": reply})
-    return reply
+        lang_history = history[lang]
+
+        lang_history.append({
+            "role": "user",
+            "content": user_text
+        })
+
+        response = client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": system
+                },
+                *lang_history,
+            ],
+            max_tokens=MAX_TOKENS,
+            temperature=0.4,
+        )
+
+        reply = response.choices[0].message.content.strip()
+
+        lang_history.append({
+            "role": "assistant",
+            "content": reply
+        })
+
+        return reply
+
+    except Exception as e:
+
+        print(f"\n❌ LLM GENERATION FAILED:\n{e}\n")
+
+        return (
+            "Sorry, mujhe abhi response generate karne mein problem aa rahi hai."
+            if lang == "hi"
+            else
+            "Sorry, I am having trouble generating a response right now."
+        )
 
 
 # ══════════════════════════════════════════════════════════
@@ -551,23 +590,58 @@ def pick_voice(text: str, lang: str) -> str:
 
 
 async def _tts(text: str, path: str, voice: str):
-    await edge_tts.Communicate(text, voice=voice).save(path)
+
+    await edge_tts.Communicate(
+        text,
+        voice=voice
+    ).save(path)
 
 
 def speak(text: str, lang: str = "en"):
-    voice = pick_voice(text, lang)
-    print(f"   🔊 [{voice}] {textwrap.shorten(text, 80)}")
 
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-        tmp_path = tmp.name
+    try:
 
-    asyncio.run(_tts(text, tmp_path, voice))
-    pygame.mixer.music.load(tmp_path)
-    pygame.mixer.music.play()
-    while pygame.mixer.music.get_busy():
-        pygame.time.wait(100)
-    pygame.mixer.music.unload()
-    os.unlink(tmp_path)
+        voice = pick_voice(text, lang)
+
+        print(
+            f"   🔊 [{voice}] "
+            f"{textwrap.shorten(text, width=80)}"
+        )
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".mp3",
+            delete=False
+        ) as tmp:
+
+            tmp_path = tmp.name
+
+        asyncio.run(
+            _tts(text, tmp_path, voice)
+        )
+
+        pygame.mixer.music.load(tmp_path)
+
+        pygame.mixer.music.play()
+
+        while pygame.mixer.music.get_busy():
+
+            pygame.time.wait(100)
+
+        pygame.mixer.music.stop()
+
+        pygame.mixer.music.unload()
+
+        if os.path.exists(tmp_path):
+
+            try:
+                os.unlink(tmp_path)
+
+            except:
+                pass
+
+    except Exception as e:
+
+        print(f"\n❌ TTS ERROR:\n{e}\n")
 
 
 # ══════════════════════════════════════════════════════════
@@ -603,109 +677,141 @@ def state_label(state: State) -> str:
 # ══════════════════════════════════════════════════════════
 
 def main():
-    # ── Initialise pygame audio ───────────────────────────
-    pygame.mixer.init()
-
-    # ── Boot RAG engine ───────────────────────────────────
-    rag = RAGEngine()
-    rag.load_pdf(PDF_PATH)
-
-    print_banner(rag.ready)
-
-    state = State.LISTENING
-    reply = ""
-    lang  = "hi"
-
-    # ── Opening greeting ──────────────────────────────────
-    speak(
-        "Hello! Mein AcroBot 2.2 hu, Acropolis Institute ka AI Assistant. "
-        "Aap admission, courses, departments, fees aur college se judi "
-        "koi bhi jaankari poochh sakte hain. Mein aapki kaise madad kar sakta hu?",
-        lang="hi",
-    )
 
     try:
+
+        pygame.mixer.init()
+
+        rag = RAGEngine()
+
+        rag.load_pdf(PDF_PATH)
+
+        print_banner(rag.ready)
+
+        state = State.LISTENING
+
+        reply = ""
+
+        lang = "hi"
+
+        speak(
+            "Hello! Mein AcroBot 2.2 hu, "
+            "Acropolis Institute ka AI Assistant.",
+            lang="hi",
+        )
+
         while True:
 
-            # ──────────────────────────────────────────────
-            #  IDLE — wait silently for a wake word
-            # ──────────────────────────────────────────────
             if state == State.IDLE:
-                print(f"\n{state_label(state)}  — say 'Hello' to wake me up …")
 
-                audio = capture_speech(timeout=IDLE_POLL_TIMEOUT)
+                print(f"\n{state_label(state)}")
+
+                audio = capture_speech(
+                    timeout=IDLE_POLL_TIMEOUT
+                )
+
                 if audio is None:
                     continue
 
-                print("🔍 Checking for wake word …")
                 wake_text, _ = transcribe(audio)
-                print(f"   Heard: {wake_text!r}")
+
+                print(f"Heard: {wake_text}")
 
                 if is_wake_word(wake_text):
+
                     state = State.LISTENING
-                    print("\n✅ Wake word detected!")
-                    speak("Haan, mein sun raha hoon. Aap apna sawaal poochhiye.", lang="hi")
-                else:
-                    print("   Not a wake word — staying idle.")
-                continue
 
-            # ──────────────────────────────────────────────
-            #  LISTENING — VAD; 10 s silence → IDLE
-            # ──────────────────────────────────────────────
-            if state == State.LISTENING:
-                print(f"\n{state_label(state)}  "
-                      f"— {int(IDLE_TIMEOUT)}s of silence → idle")
-
-                audio = capture_speech(timeout=IDLE_TIMEOUT)
-
-                if audio is None:
-                    state = State.IDLE
-                    print(f"\n⏱️  No speech — going idle.")
                     speak(
-                        "Mein idle mode mein ja raha hoon. "
-                        "Jab zaroorat ho 'Hello' kahiye.",
+                        "Haan, mein sun raha hoon.",
                         lang="hi",
                     )
+
+                continue
+
+            if state == State.LISTENING:
+
+                print(f"\n{state_label(state)}")
+
+                audio = capture_speech(
+                    timeout=IDLE_TIMEOUT
+                )
+
+                if audio is None:
+
+                    state = State.IDLE
+
                     continue
 
-                # ── Transcribe ────────────────────────────
-                print("🎙️  Transcribing …")
                 user_text, lang = transcribe(audio)
 
                 if not user_text:
-                    print("⚠️  Could not understand — listening again.")
                     continue
 
-                print(f"\n   You [{lang.upper()}] › {user_text}")
+                print(f"\nYou [{lang.upper()}] › {user_text}")
 
-                # ── RAG: retrieve context ─────────────────
                 print("🔎 Retrieving context …")
-                context, source = build_context(user_text, rag)
-                print(f"   📚 Source used: [{source}]")
-                if context:
-                    preview = context[:120].replace("\n", " ")
-                    print(f"   Context preview: {preview} …")
 
-                # ── LLM ───────────────────────────────────
+                context, source = build_context(
+                    user_text,
+                    rag
+                )
+
+                print(f"📚 Source: {source}")
+
                 print("🤔 Generating reply …")
-                reply = get_ai_reply(user_text, lang, context)
-                print(f"   AI [{lang.upper()}] › {reply}")
+
+                try:
+
+                    reply = get_ai_reply(
+                        user_text,
+                        lang,
+                        context
+                    )
+
+                except Exception as e:
+
+                    print(f"\n❌ Reply generation failed:\n{e}\n")
+
+                    reply = (
+                        "Sorry, mujhe technical problem aa rahi hai."
+                        if lang == "hi"
+                        else
+                        "Sorry, I am facing a technical problem."
+                    )
+
+                print(f"AI [{lang.upper()}] › {reply}")
 
                 state = State.SPEAKING
+
                 continue
 
-            # ──────────────────────────────────────────────
-            #  SPEAKING — play reply → back to LISTENING
-            # ──────────────────────────────────────────────
             if state == State.SPEAKING:
-                print(f"\n{state_label(state)}")
-                speak(reply, lang)
+
+                try:
+
+                    speak(reply, lang)
+
+                except Exception as e:
+
+                    print(f"\n❌ TTS failed:\n{e}\n")
+
                 state = State.LISTENING
+
                 continue
 
-    except KeyboardInterrupt:
-        print("\n\n👋 Shutting down AcroBot 2.2 …")
+    except Exception as e:
 
+        print("\n" + "=" * 60)
 
+        print("❌ MAIN PROGRAM ERROR")
+
+        print("=" * 60)
+
+        print(e)
+
+        print("=" * 60 + "\n")
+
+        
 if __name__ == "__main__":
+
     main()
