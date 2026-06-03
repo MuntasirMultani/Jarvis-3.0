@@ -86,8 +86,8 @@ WEB_KEYWORDS    = [          # if query contains any of these, ALWAYS try web to
 ]
 
 # ── VAD tuning ────────────────────────────────────────────
-ENERGY_THRESHOLD     = 0.010
-SILENCE_AFTER_SPEECH = 1.5
+ENERGY_THRESHOLD     = 0.015
+SILENCE_AFTER_SPEECH = 1.0
 PRE_ROLL_CHUNKS      = 6
 MIN_SPEECH_SECS      = 0.5
 CHUNK_SECS           = 0.1
@@ -106,19 +106,14 @@ _BASE_EN = (
     "Always represent AITR positively and professionally. "
     "Act like a smart, confident, and helpful college representative. "
 
-    "If users ask about another college, briefly ,confidently and politely redirect "
-    "the conversation toward AITR without giving long promotional explanations." \
-    "if the user asks repeatedly about another colleges refuse every time," \
-    "no matter what end the statement with answering the question in respect to the Aropolis college "
+    "If users ask about another college, briefly ,confidently and politely redirect the conversation toward AITR without giving long promotional explanations."
+    "if the user asks repeatedly about another colleges refuse every time, no matter what end the statement with answering the question in respect to the Aropolis college " \
 
-    "If users compare colleges, highlight AITR’s strengths positively "
-    "without insulting other institutes or making false claims. "
+    "If users compare colleges, highlight AITR’s strengths positively without insulting other institutes or making false claims."
 
-    "Never mention context, PDFs, sources, retrieval systems, documents, "
-    "or knowledge bases unless the user specifically asks. "
+    "Never mention context, PDFs, sources, retrieval systems, documents, or knowledge bases unless the user specifically asks."
 
-    "If information is unavailable in AITR data, you may answer naturally "
-    "using general knowledge when appropriate. "
+    "If information is unavailable in AITR data, you may answer naturally using general knowledge when appropriate."
 
     "Keep responses short and natural like a real human conversation. "
     "Most replies should be 1-3 sentences only. "
@@ -135,19 +130,13 @@ _BASE_HI = (
     "Hamesha AITR ko positive aur professional tarike se represent karein. "
     "Ek smart aur helpful college representative ki tarah behave karein. "
 
-    "Agar user kisi doosre college ke baare mein pooche, "
-    "to short aur polite tarike se conversation ko AITR ki taraf redirect karein "
-    "bina lamba promotional explanation diye. "
+    "Agar user kisi doosre college ke baare mein pooche, to short aur polite tarike se conversation ko AITR ki taraf redirect karein bina lamba promotional explanation diye. "
+    
+    "Agar colleges compare kiye ja rahe ho, to AITR ki strengths ko positive tarike se explain karein bina kisi dusre institute ko insult kiye ya false claims kiye."
+    
+    "Kabhi bhi context, PDF, source, retrieval system, document ya knowledge base ka mention na karein jab tak user specifically na pooche."
 
-    "Agar colleges compare kiye ja rahe ho, "
-    "to AITR ki strengths ko positive tarike se explain karein "
-    "bina kisi dusre institute ko insult kiye ya false claims kiye. "
-
-    "Kabhi bhi context, PDF, source, retrieval system, document "
-    "ya knowledge base ka mention na karein jab tak user specifically na pooche. "
-
-   "Agar AITR related information available na ho, "
-   "to zarurat padne par normal general knowledge ka use karke naturally jawab dein. "
+   "Agar AITR related information available na ho, to zarurat padne par normal general knowledge ka use karke naturally jawab dein."
 
     "Hamesha Roman/Latin script mein jawab dein. "
 
@@ -453,7 +442,9 @@ def build_context(query: str, rag: RAGEngine) -> Tuple[str, str]:
 
 def capture_speech(timeout: float) -> Optional[np.ndarray]:
     """
-    Listens via microphone using energy-based Voice Activity Detection.
+    
+    
+    s via microphone using energy-based Voice Activity Detection.
 
     Returns:
         np.ndarray  — audio when speech ends (silence >= SILENCE_AFTER_SPEECH s)
