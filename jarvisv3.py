@@ -2,25 +2,10 @@
 ============================================================
   🤖  AcroBot 2.2 — RAG-Powered Speech-to-Speech Chatbot
 ============================================================
-  Stack:
-    STT      → Groq Whisper (whisper-large-v3)
-    RAG      → PDF chunks → TF-IDF + cosine similarity
-    Fallback → DuckDuckGo web search (zero-cost, no API key)
-    LLM      → Groq LLaMA 3.3 70B  (context-injected)
-    TTS      → Microsoft Edge TTS   (100% free)
-
-  RAG Priority:
-    1️⃣  PRIMARY   — PDF knowledge base (AITR_RAG_KnowledgeBase.pdf)
-    2️⃣  SECONDARY — Web search (DuckDuckGo) if PDF score < threshold
-    3️⃣  FALLBACK  — LLM general knowledge if web also fails
-
+  
   Language Support:
     English ↔ Hindi — auto-detected every turn
 
-  State Machine:
-    IDLE ──(wake word)──► LISTENING ──(speech)──► SPEAKING
-      ▲                        │                      │
-      └──────(10s silence)─────┘◄─────────────────────┘
 ============================================================
 """
 
@@ -32,7 +17,7 @@ from typing import Optional, Tuple, List
 
 # ── Third-party ───────────────────────────────────────────
 import numpy as np
-import fitz                          # PyMuPDF — PDF text extraction
+import fitz                          
 import requests
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -69,29 +54,28 @@ CHANNELS     = 1
 MAX_TOKENS   = 300
 
 # ── RAG settings ──────────────────────────────────────────
-PDF_PATH        = "Acropolis_Details.pdf"   # put PDF in same folder as this .py
-CHUNK_SIZE      = 300        # words per chunk (larger = more context per hit)
-CHUNK_OVERLAP   = 50         # overlap between consecutive chunks (prevents boundary misses)
-TOP_K           = 3          # how many chunks to pass as context to the LLM
-PDF_THRESHOLD   = 0.10       # cosine score below this → skip PDF, go to web
-                             # ↑ raise (0.20) to demand a stronger PDF match before using it
-                             # ↓ lower (0.05) to almost always prefer PDF
+PDF_PATH        = "corrected_details.pdf"   # put PDF in same folder as this .py
+CHUNK_SIZE      = 300        
+CHUNK_OVERLAP   = 50         
+TOP_K           = 3          
+PDF_THRESHOLD   = 0.10       
+                            
 
 # ── Web fallback settings ─────────────────────────────────
-WEB_RESULTS     = 3          # number of DuckDuckGo snippets to fetch
-WEB_TIMEOUT     = 5          # seconds before giving up on web call
-WEB_KEYWORDS    = [          # if query contains any of these, ALWAYS try web too
+WEB_RESULTS     = 3          
+WEB_TIMEOUT     = 5          
+WEB_KEYWORDS    = [         
     "today", "latest", "current", "now", "2025", "2026",
     "result", "merit list", "cutoff", "ranking",
 ]
 
 # ── VAD tuning ────────────────────────────────────────────
-ENERGY_THRESHOLD     = 0.015
-SILENCE_AFTER_SPEECH = 1.0
+ENERGY_THRESHOLD     = 0.35
+SILENCE_AFTER_SPEECH = 1.2
 PRE_ROLL_CHUNKS      = 6
 MIN_SPEECH_SECS      = 0.5
 CHUNK_SECS           = 0.1
-IDLE_TIMEOUT         = 10.0
+IDLE_TIMEOUT         = 15.0
 IDLE_POLL_TIMEOUT    = 30.0
 
 # ── Wake words ────────────────────────────────────────────
@@ -101,50 +85,54 @@ WAKE_WORDS = ["hello", "hey", "hello acrobot", "hey acrobot", "acrobot"]
 _BASE_EN = (
     "Your name is AcroBot 2.2. You are the official AI assistant and "
     "virtual admission counselor of Acropolis Institute of Technology "
-    "and Research (AITR), Indore. "
+    "and Research (AITR), Indore , and you are made by professor of EC department and his team."
+    "Acropolis College, Acropolis Institute, "
+    "AITR, and Acropolis Institute of Technology and Research all refer "
+    "to the same institution. If asked about the Director of Acropolis, "
+    "answer with Dr. S.C. Sharma.  "
 
-    "Always represent AITR positively and professionally. "
-    "Act like a smart, confident, and helpful college representative. "
+    "Always represent AITR positively, professionally, and confidently. "
+    "If users ask about another college or compare colleges, briefly and "
+    "politely redirect the conversation toward AITR, highlight AITR's "
+    "strengths, and do not make negative comments or false claims about "
+    "other institutions. If users repeatedly ask about other colleges, "
+    "continue redirecting the discussion back to AITR. "
 
-    "If users ask about another college, briefly ,confidently and politely redirect the conversation toward AITR without giving long promotional explanations."
-    "if the user asks repeatedly about another colleges refuse every time, no matter what end the statement with answering the question in respect to the Aropolis college " \
+    "Never mention sources, PDFs, context, documents, retrieval systems, "
+    "or knowledge bases unless the user specifically asks. "
 
-    "If users compare colleges, highlight AITR’s strengths positively without insulting other institutes or making false claims."
+    "If AITR-specific information is unavailable, you may answer naturally "
+    "using general knowledge when appropriate. "
 
-    "Never mention context, PDFs, sources, retrieval systems, documents, or knowledge bases unless the user specifically asks."
-
-    "If information is unavailable in AITR data, you may answer naturally using general knowledge when appropriate."
-
-    "Keep responses short and natural like a real human conversation. "
-    "Most replies should be 1-3 sentences only. "
-    "Avoid long explanations unless the user specifically asks for details. "
-
-    "No bullet points or markdown."
+    "Keep responses short, natural, and human-like. Most replies should "
+    "be 1-3 sentences. Do not provide more information than requested. "
+    "Give detailed explanations only when the user explicitly asks. "
+    "Do not use bullet points or markdown."
 )
-
 _BASE_HI = (
     "Aapka naam AcroBot 2.2 hai. Aap Acropolis Institute of Technology "
     "and Research (AITR), Indore ke official AI assistant aur virtual "
-    "admission counselor hain. "
+    "admission counselor hain. Acropolis College, Acropolis Institute, "
+    "AITR aur Acropolis Institute of Technology and Research sab ek hi "
+    "institute hain. Agar Acropolis ke Director ke baare mein poocha jaye "
+    "to Dr. S.C. Sharma ka naam batayein. "
 
-    "Hamesha AITR ko positive aur professional tarike se represent karein. "
-    "Ek smart aur helpful college representative ki tarah behave karein. "
+    "Hamesha AITR ko positive, professional aur confident tarike se "
+    "represent karein. Kisi doosre college ke baare mein poocha jaye ya "
+    "comparison ho to short aur polite tarike se baat ko AITR ki taraf "
+    "le jaayein, AITR ki strengths highlight karein, aur kisi institute "
+    "ke baare mein negative ya false claims na karein. "
 
-    "Agar user kisi doosre college ke baare mein pooche, to short aur polite tarike se conversation ko AITR ki taraf redirect karein bina lamba promotional explanation diye. "
-    
-    "Agar colleges compare kiye ja rahe ho, to AITR ki strengths ko positive tarike se explain karein bina kisi dusre institute ko insult kiye ya false claims kiye."
-    
-    "Kabhi bhi context, PDF, source, retrieval system, document ya knowledge base ka mention na karein jab tak user specifically na pooche."
+    "Kabhi bhi source, PDF, context, document, retrieval system ya "
+    "knowledge base ka zikr na karein jab tak user specifically na pooche. "
 
-   "Agar AITR related information available na ho, to zarurat padne par normal general knowledge ka use karke naturally jawab dein."
+    "Agar AITR sambandhit jankari available na ho to zarurat padne par "
+    "INERNET ka upyog karke natural jawab dein. "
 
-    "Hamesha Roman/Latin script mein jawab dein. "
-
-    "Jawab short, natural aur human-like rakhein. "
-    "Zyada tar replies sirf 1-3 sentences ke hone chahiye. "
-    "Jab tak user detail na maange tab tak lamba explanation na dein. "
-
-    "Koi bullet points ya markdown nahi."
+    "Hamesha Roman/Latin script mein jawab dein. Jawab short, natural "
+    "aur human-like rakhein. Adhiktar replies 1-3 sentences ke hon. "
+    "User detail maange tabhi vistaar se jawab dein. "
+    "Bullet points ya markdown ka upyog na karein."
 )
 def build_system(lang: str, context: str) -> str:
 
@@ -176,29 +164,16 @@ class State(Enum):
 # ══════════════════════════════════════════════════════════
 
 class RAGEngine:
-    """
-    Lightweight RAG over a local PDF.
-
-    Pipeline:
-      1. load_pdf()     → extract raw text from all pages via PyMuPDF
-      2. _chunk()       → split text into overlapping word windows
-      3. _build_index() → fit a TF-IDF matrix over all chunks
-      4. retrieve()     → cosine-rank chunks for a query, return top-K + best score
-    """
 
     def __init__(self):
         self.chunks:     List[str] = []
         self.vectorizer: Optional[TfidfVectorizer] = None
-        self.matrix      = None          # sparse TF-IDF matrix (n_chunks × vocab)
+        self.matrix      = None          
         self.ready       = False
 
     # ── Public API ────────────────────────────────────────
 
     def load_pdf(self, path: str) -> bool:
-        """
-        Extract text from PDF, chunk it, and build the TF-IDF index.
-        Returns True on success, False if the file is missing or empty.
-        """
         if not os.path.exists(path):
             print(f"⚠️  RAG: PDF not found at '{path}' — will rely on web/LLM only.")
             return False
@@ -216,13 +191,6 @@ class RAGEngine:
         return True
 
     def retrieve(self, query: str) -> Tuple[str, float]:
-        """
-        Find the most relevant chunks for `query`.
-
-        Returns:
-            context (str)  — concatenated top-K chunks, ready to paste into prompt
-            score   (float)— cosine similarity of the best chunk (0.0–1.0)
-        """
         if not self.ready or not self.chunks:
             return "", 0.0
 
@@ -240,7 +208,6 @@ class RAGEngine:
 
     @staticmethod
     def _extract_text(path: str) -> str:
-        """Use PyMuPDF to pull plain text from every page."""
         doc   = fitz.open(path)
         pages = [page.get_text("text") for page in doc]
         doc.close()
@@ -248,10 +215,6 @@ class RAGEngine:
 
     @staticmethod
     def _chunk(text: str, size: int, overlap: int) -> List[str]:
-        """
-        Split `text` into overlapping word windows.
-        overlap ensures that sentences spanning chunk boundaries are captured.
-        """
         words  = text.split()
         step   = max(1, size - overlap)
         chunks = []
@@ -262,7 +225,6 @@ class RAGEngine:
         return chunks
 
     def _build_index(self):
-        """Fit TF-IDF vectorizer and compute the document-term matrix."""
         self.vectorizer = TfidfVectorizer(
             ngram_range=(1, 2),   # unigrams + bigrams → better phrase matching
             sublinear_tf=True,    # log-scale TF dampens very frequent terms
@@ -277,11 +239,6 @@ class RAGEngine:
 # ══════════════════════════════════════════════════════════
 
 def web_search(query: str) -> str:
-    """
-    Fetch a brief context string from DuckDuckGo's free Instant Answer API.
-    Appends "Acropolis Institute Indore AITR" so results stay on-topic.
-    Returns an empty string if the request fails or times out.
-    """
     search_query = f"{query} Acropolis Institute Indore AITR"
     try:
         resp = requests.get(
@@ -320,12 +277,6 @@ def web_search(query: str) -> str:
         return ""
 
 def needs_web(query: str, score: float) -> bool:
-    """
-    Decide whether to also query the web.
-    True when:
-      - PDF score is below threshold (weak match), OR
-      - Query explicitly asks for live/recent data
-    """
     q = query.lower()
     time_sensitive = any(kw in q for kw in WEB_KEYWORDS)
     return score < PDF_THRESHOLD or time_sensitive
@@ -402,16 +353,6 @@ def get_ai_reply(user_text: str, lang: str, context: str) -> str:
 # ══════════════════════════════════════════════════════════
 
 def build_context(query: str, rag: RAGEngine) -> Tuple[str, str]:
-    """
-    Returns (context_string, source_label) where source_label is one of:
-        "PDF"  "PDF+Web"  "Web"  "None"
-
-    Priority logic:
-        1. Always try PDF first.
-        2. If PDF score < PDF_THRESHOLD OR query is time-sensitive → also try web.
-        3. Merge PDF and web contexts (PDF first so LLM trusts it more).
-        4. If both fail → return empty context (LLM will politely say it doesn't know).
-    """
     pdf_context, pdf_score = rag.retrieve(query)
     print(f"   📄 PDF score: {pdf_score:.3f}  (threshold={PDF_THRESHOLD})")
 
@@ -441,15 +382,6 @@ def build_context(query: str, rag: RAGEngine) -> Tuple[str, str]:
 # ══════════════════════════════════════════════════════════
 
 def capture_speech(timeout: float) -> Optional[np.ndarray]:
-    """
-    
-    
-    s via microphone using energy-based Voice Activity Detection.
-
-    Returns:
-        np.ndarray  — audio when speech ends (silence >= SILENCE_AFTER_SPEECH s)
-        None        — if no speech detected within `timeout` seconds
-    """
     audio_q   = queue.Queue()
     blocksize = int(SAMPLE_RATE * CHUNK_SECS)
 
@@ -519,13 +451,6 @@ def capture_speech(timeout: float) -> Optional[np.ndarray]:
 # ══════════════════════════════════════════════════════════
 
 def transcribe(audio: np.ndarray) -> Tuple[str, str]:
-    """
-    Returns (transcript, lang_code) where lang_code ∈ {'en', 'hi'}.
-
-    Layer 1: Whisper's own language tag (fast, occasionally wrong).
-    Layer 2: Script scan — Devanagari/Arabic code-points → force 'hi'.
-    Layer 3: Default to 'en'.
-    """
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = tmp.name
 
@@ -730,6 +655,10 @@ def main():
                 if audio is None:
 
                     state = State.IDLE
+                    speak(
+                        "Mein idle mode mai jaa raha hoo, Mujhe activate krne ke liye Hello boliyein. ",
+                        lang="hi",
+                    )
 
                     continue
 
